@@ -53,6 +53,7 @@ async def _run_scan_with_agent_loop_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Any,
     error_factory: Callable[[], BaseException],
+    coordinator: AgentCoordinator | None = None,
 ) -> tuple[Any, AgentCoordinator]:
     """Drive ``run_strix_scan`` with a ``run_agent_loop`` that always raises."""
     monkeypatch.setattr(runner, "run_dir_for", lambda _scan_id: tmp_path)
@@ -98,7 +99,7 @@ async def _run_scan_with_agent_loop_error(
 
     monkeypatch.setattr(runner, "run_agent_loop", _raise)
 
-    coordinator = AgentCoordinator()
+    coordinator = coordinator or AgentCoordinator()
     result = await runner.run_strix_scan(
         scan_config={"targets": [], "scan_mode": "deep"},
         scan_id="scan-test",
@@ -149,10 +150,14 @@ async def test_quota_exhaustion_stops_gracefully(
 
 @pytest.mark.asyncio
 async def test_client_error_still_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    """A definitive 4xx client error (400) is not swallowed: it re-raises and the
-    root agent is marked 'failed'."""
+    """A definitive 4xx client error (400) is not swallowed: it re-raises AND leaves
+    the root agent 'failed' (not stranded 'running')."""
+    coordinator = AgentCoordinator()
     with pytest.raises(APIError):
-        await _run_scan_with_agent_loop_error(monkeypatch, tmp_path, _make_bad_request_error)
+        await _run_scan_with_agent_loop_error(
+            monkeypatch, tmp_path, _make_bad_request_error, coordinator=coordinator
+        )
+    assert coordinator.statuses[_root_id(coordinator)] == "failed"
 
 
 def test_is_fatal_api_error_classification() -> None:
