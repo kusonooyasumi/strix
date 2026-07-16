@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents import RunConfig
 from agents.sandbox import SandboxRunConfig
-from openai import APIError, RateLimitError
+from openai import APIError
 
 from strix.agents.factory import build_strix_agent, make_child_factory
 from strix.agents.prompt import render_system_prompt
@@ -51,33 +51,19 @@ logger = logging.getLogger(__name__)
 
 StreamEventSink = Callable[[str, Any], None]
 
-# Provider error codes that mean "capacity/billing exhausted", not "the scan is
-# broken": the same run can continue once the limit clears or billing is topped
-# up. Treated like a persistent rate limit — a resumable pause, not a failure.
-_RESUMABLE_LLM_ERROR_CODES = frozenset(
-    {
-        "insufficient_quota",
-        "billing_hard_limit_reached",
-        "billing_not_active",
-        "rate_limit_exceeded",
-    }
-)
 
+def _is_fatal_api_error(exc: APIError) -> bool:
+    """Whether an ``APIError`` is a genuine, non-recoverable failure rather than a
+    transient/capacity condition the scan can be resumed past.
 
-def _is_resumable_provider_error(exc: APIError) -> bool:
-    """Whether an ``APIError`` is a resumable provider quota/billing/rate-limit
-    exhaustion rather than a genuine scan failure.
-
-    These can surface mid-stream as a bare ``APIError`` with no HTTP status code
-    (e.g. an ``insufficient_quota`` event inside a streamed response), so they
-    dodge both the SDK's status-based retry policy and the ``RateLimitError``
-    handler. Match on the error code/type and message instead of the status.
+    A definitive 4xx **client** error (bad request, auth, not found, unprocessable)
+    means the request itself is wrong — resuming won't help, so fail the scan. A
+    ``429`` (rate limit *and* quota), a ``5xx``, a connection/timeout, or a
+    statusless mid-stream error (how quota/billing errors arrive inside a streamed
+    response) are all "come back later" conditions: stop and let the run resume.
     """
-    code = getattr(exc, "code", None) or getattr(exc, "type", None)
-    if isinstance(code, str) and code in _RESUMABLE_LLM_ERROR_CODES:
-        return True
-    message = str(getattr(exc, "message", "") or exc).lower()
-    return "quota" in message or "billing" in message or "rate limit" in message
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and 400 <= status < 500 and status != 429
 
 
 def _merge_root_prompt_context(
@@ -405,10 +391,10 @@ async def run_strix_scan(
             with contextlib.suppress(Exception):
                 await coordinator.set_status(root_id, "stopped")
         return None
-    except (RateLimitError, APIError) as exc:
-        if not isinstance(exc, RateLimitError) and not _is_resumable_provider_error(exc):
-            # A non-quota API error is a genuine failure, not a resumable pause;
-            # fail the scan the same way as any other unexpected error.
+    except APIError as exc:
+        if _is_fatal_api_error(exc):
+            # A definitive client error (bad request, auth, ...) is a real failure,
+            # not a resumable pause; handle it like any other unexpected error.
             logger.exception("Strix scan %s failed", scan_id)
             if root_id is not None:
                 await coordinator.cancel_descendants(root_id)
@@ -416,8 +402,8 @@ async def run_strix_scan(
                     await coordinator.set_status(root_id, "failed")
             raise
         logger.warning(
-            "Scan %s stopped: LLM provider rate limit or quota/billing exhausted (%s). "
-            "Resume with 'strix --resume %s' once it clears.",
+            "Scan %s stopped: LLM provider unavailable — rate limit, quota/billing, "
+            "or a transient error (%s). Resume with 'strix --resume %s' once it clears.",
             scan_id,
             exc,
             scan_id,

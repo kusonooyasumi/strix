@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
-from openai import APIError, RateLimitError
+from openai import APIError, BadRequestError, RateLimitError
 
 import strix.tools.notes.tools as notes_tools
 import strix.tools.todo.tools as todo_tools
@@ -42,14 +42,11 @@ def _make_quota_error() -> APIError:
     )
 
 
-def _make_bad_request_error() -> APIError:
-    """A genuine, non-resumable API error (should still fail the scan)."""
+def _make_bad_request_error() -> BadRequestError:
+    """A genuine, non-resumable client error (400) — should still fail the scan."""
     request = httpx.Request("POST", "https://api.openai.com/v1/responses")
-    return APIError(
-        message="Invalid value for 'tools': too many tools.",
-        request=request,
-        body={"type": "invalid_request_error", "code": "invalid_request_error"},
-    )
+    response = httpx.Response(status_code=400, request=request)
+    return BadRequestError("Invalid value for 'tools'.", response=response, body=None)
 
 
 async def _run_scan_with_agent_loop_error(
@@ -151,15 +148,16 @@ async def test_quota_exhaustion_stops_gracefully(
 
 
 @pytest.mark.asyncio
-async def test_non_quota_api_error_still_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
-) -> None:
-    """A genuine (non-quota) APIError is not swallowed: it re-raises and the root
-    agent is marked 'failed'."""
+async def test_client_error_still_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """A definitive 4xx client error (400) is not swallowed: it re-raises and the
+    root agent is marked 'failed'."""
     with pytest.raises(APIError):
         await _run_scan_with_agent_loop_error(monkeypatch, tmp_path, _make_bad_request_error)
 
 
-def test_is_resumable_provider_error_classification() -> None:
-    assert runner._is_resumable_provider_error(_make_quota_error()) is True
-    assert runner._is_resumable_provider_error(_make_bad_request_error()) is False
+def test_is_fatal_api_error_classification() -> None:
+    # statusless mid-stream quota error and a 429 rate limit are recoverable
+    assert runner._is_fatal_api_error(_make_quota_error()) is False
+    assert runner._is_fatal_api_error(_make_rate_limit_error()) is False
+    # a definitive 4xx client error is fatal
+    assert runner._is_fatal_api_error(_make_bad_request_error()) is True
