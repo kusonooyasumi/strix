@@ -32,7 +32,7 @@ def test_cost_callback_reads_openrouter_stream_usage_cost() -> None:
     with patch("strix.report.state.get_global_report_state", return_value=report_state):
         litellm_cost_callback({"response_cost": None}, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(1.2345)
+    report_state.record_observed_llm_cost.assert_called_once_with(1.2345, model=None)
 
 
 def test_cost_callback_reads_usage_cost_from_mapping_response() -> None:
@@ -42,7 +42,7 @@ def test_cost_callback_reads_usage_cost_from_mapping_response() -> None:
     with patch("strix.report.state.get_global_report_state", return_value=report_state):
         litellm_cost_callback({}, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(0.125)
+    report_state.record_observed_llm_cost.assert_called_once_with(0.125, model=None)
 
 
 def test_cost_callback_reads_byok_upstream_inference_cost() -> None:
@@ -59,7 +59,7 @@ def test_cost_callback_reads_byok_upstream_inference_cost() -> None:
     with patch("strix.report.state.get_global_report_state", return_value=report_state):
         litellm_cost_callback({"response_cost": None}, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(6.75e-06)
+    report_state.record_observed_llm_cost.assert_called_once_with(6.75e-06, model=None)
 
 
 def test_cost_callback_sums_usage_cost_and_upstream_inference_cost() -> None:
@@ -75,7 +75,9 @@ def test_cost_callback_sums_usage_cost_and_upstream_inference_cost() -> None:
     with patch("strix.report.state.get_global_report_state", return_value=report_state):
         litellm_cost_callback({}, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(pytest.approx(0.21))
+    report_state.record_observed_llm_cost.assert_called_once_with(
+        pytest.approx(0.21), model=None
+    )
 
 
 def test_cost_callback_ignores_upstream_cost_for_non_byok_responses() -> None:
@@ -91,7 +93,7 @@ def test_cost_callback_ignores_upstream_cost_for_non_byok_responses() -> None:
     with patch("strix.report.state.get_global_report_state", return_value=report_state):
         litellm_cost_callback({}, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(0.05)
+    report_state.record_observed_llm_cost.assert_called_once_with(0.05, model=None)
 
 
 def test_cost_callback_estimates_cost_with_provider_prefixed_model() -> None:
@@ -114,7 +116,9 @@ def test_cost_callback_estimates_cost_with_provider_prefixed_model() -> None:
     ):
         litellm_cost_callback(kwargs, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(0.5)
+    report_state.record_observed_llm_cost.assert_called_once_with(
+        0.5, model="anthropic/claude-sonnet-4.5"
+    )
 
 
 def test_cost_callback_estimates_cost_with_bare_model_fallback() -> None:
@@ -137,7 +141,9 @@ def test_cost_callback_estimates_cost_with_bare_model_fallback() -> None:
     ):
         litellm_cost_callback(kwargs, response)
 
-    report_state.record_observed_llm_cost.assert_called_once_with(0.025)
+    report_state.record_observed_llm_cost.assert_called_once_with(
+        0.025, model="openai/gpt-4o-mini"
+    )
 
 
 def test_cost_callback_records_nothing_when_no_cost_available() -> None:

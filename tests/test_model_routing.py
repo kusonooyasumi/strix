@@ -9,9 +9,10 @@ import pytest
 from agents.model_settings import ModelSettings
 from agents.usage import Usage
 
-from strix.agents.factory import _resolve_child_api_key, build_strix_agent, make_child_factory
+from strix.agents.factory import build_strix_agent, make_child_factory
 from strix.config.settings import LlmSettings, Settings, SkillModelRoute
 from strix.core.hooks import ReportUsageHooks
+from strix.core.model_routing import resolve_route_api_key
 
 
 def test_child_api_key_prefers_explicit_subagent_key() -> None:
@@ -21,14 +22,14 @@ def test_child_api_key_prefers_explicit_subagent_key() -> None:
         subagent_api_key="child-key",
     )
     # Explicit subagent key wins even when the child shares the root provider.
-    assert _resolve_child_api_key(llm, "openai/child", "openai/root") == "child-key"
+    assert resolve_route_api_key(llm, "openai/child", "openai/root") == "child-key"
 
 
 def test_child_api_key_reuses_root_key_only_for_same_provider() -> None:
     llm = LlmSettings(model="openai/root", api_key="root-key")
-    assert _resolve_child_api_key(llm, "openai/mini", "openai/root") == "root-key"
+    assert resolve_route_api_key(llm, "openai/mini", "openai/root") == "root-key"
     # A cross-provider child must not receive the root provider's credential.
-    assert _resolve_child_api_key(llm, "anthropic/opus", "openai/root") is None
+    assert resolve_route_api_key(llm, "anthropic/opus", "openai/root") is None
 
 
 def test_child_api_key_flows_into_model_settings_extra_args() -> None:
@@ -83,7 +84,7 @@ def test_child_factory_precedence_and_per_model_schema(monkeypatch: pytest.Monke
     )
     seen_schema_models: list[str] = []
     monkeypatch.setattr(
-        "strix.agents.factory.uses_chat_completions_tool_schema",
+        "strix.core.model_routing.uses_chat_completions_tool_schema",
         lambda model, _settings: seen_schema_models.append(model) or model != "openai/escalated",
     )
     monkeypatch.setattr(

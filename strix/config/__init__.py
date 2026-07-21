@@ -19,6 +19,7 @@ from strix.config.loader import (
 from strix.config.settings import (
     IntegrationSettings,
     LlmSettings,
+    ReasoningEffort,
     RuntimeSettings,
     Settings,
     SkillModelRoute,
@@ -29,6 +30,7 @@ from strix.config.settings import (
 __all__ = [
     "IntegrationSettings",
     "LlmSettings",
+    "ReasoningEffort",
     "RuntimeSettings",
     "Settings",
     "SkillModelRoute",
