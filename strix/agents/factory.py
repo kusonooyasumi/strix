@@ -17,8 +17,12 @@ from agents.tool import CustomTool, FunctionTool, Tool
 from pydantic import ValidationError
 
 from strix.agents.prompt import render_system_prompt
-from strix.config.models import _same_provider, uses_chat_completions_tool_schema
 from strix.core.inputs import make_model_settings
+from strix.core.model_routing import (
+    chain_uses_chat_completions_tools,
+    resolve_budget_model,
+    resolve_route_api_key,
+)
 from strix.tools.agents_graph.tools import (
     agent_finish,
     create_agent,
@@ -63,7 +67,7 @@ if TYPE_CHECKING:
     from agents import RunContextWrapper
     from agents.tool import FunctionToolResult
 
-    from strix.config.settings import LlmSettings, ReasoningEffort, Settings, SkillModelRoute
+    from strix.config.settings import ReasoningEffort, Settings, SkillModelRoute
 
 
 logger = logging.getLogger(__name__)
@@ -482,22 +486,6 @@ def build_strix_agent(
     )
 
 
-def _resolve_child_api_key(
-    llm: LlmSettings, resolved_model: str, default_model: str
-) -> str | None:
-    """Pick the credential a child should send as a per-call ``api_key``.
-
-    Prefer an explicit ``SUBAGENT_LLM_API_KEY``. Otherwise reuse the
-    orchestrator key only when the child shares the orchestrator's provider;
-    cross-provider children fall back to their provider's ambient env/auth.
-    """
-    if llm.subagent_api_key and llm.subagent_api_key.strip():
-        return llm.subagent_api_key.strip()
-    if llm.api_key and _same_provider(resolved_model, default_model):
-        return llm.api_key
-    return None
-
-
 def make_child_factory(
     *,
     settings: Settings,
@@ -526,12 +514,13 @@ def make_child_factory(
         model: str | None = None,
     ) -> SandboxAgent[Any]:
         route = _matching_route(skills) if model is None else None
-        resolved_model = (
+        configured_model = (
             model
             or (route.model if route is not None else None)
             or llm.subagent_model
             or default_model
         ).strip()
+        resolved_model = resolve_budget_model(configured_model, llm)
         reasoning: ReasoningEffort | None = (
             route.reasoning_effort
             if route is not None and route.reasoning_effort is not None
@@ -539,7 +528,7 @@ def make_child_factory(
         )
         if reasoning is None:
             reasoning = llm.reasoning_effort
-        child_api_key = _resolve_child_api_key(llm, resolved_model, default_model)
+        child_api_key = resolve_route_api_key(llm, resolved_model, default_model)
         child_model_settings = make_model_settings(
             reasoning,
             model_name=resolved_model,
@@ -553,8 +542,8 @@ def make_child_factory(
             scan_mode=scan_mode,
             is_whitebox=is_whitebox,
             interactive=interactive,
-            chat_completions_tools=uses_chat_completions_tool_schema(
-                resolved_model,
+            chat_completions_tools=chain_uses_chat_completions_tools(
+                configured_model,
                 settings,
             ),
             model=resolved_model,
