@@ -177,6 +177,7 @@ async def _do_create(  # noqa: PLR0912
     fix_pr_body: str | None = None,
     agent_id: str | None = None,
     agent_name: str | None = None,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     fields = {
@@ -274,6 +275,28 @@ async def _do_create(  # noqa: PLR0912
                 "reason": dedupe.get("reason", ""),
             }
 
+        from strix.report.verification import verify_finding
+
+        verification = await verify_finding(
+            {
+                **candidate,
+                "remediation_steps": remediation_steps,
+                "evidence": evidence,
+                "assumptions": assumptions,
+                "cvss_breakdown": cvss_breakdown,
+                "cve": cve,
+                "cwe": cwe,
+                "code_locations": parsed_locations,
+            },
+            context,
+        )
+        if verification.get("status") not in {"not_requested", "confirmed"}:
+            return {
+                "success": False,
+                "error": "Finding was not confirmed by the independent verifier",
+                "verification": verification,
+            }
+
         report_id = report_state.add_vulnerability_report(
             title=title,
             description=description,
@@ -295,6 +318,7 @@ async def _do_create(  # noqa: PLR0912
             cwe=cwe,
             code_locations=parsed_locations,
             fix_pr_body=fix_pr_body,
+            verification=verification,
             agent_id=agent_id if isinstance(agent_id, str) else None,
             agent_name=agent_name if isinstance(agent_name, str) else None,
         )
@@ -612,6 +636,7 @@ async def create_vulnerability_report(
         fix_pr_body=fix_pr_body,
         agent_id=agent_id,
         agent_name=agent_name,
+        context=inner,
     )
     return json.dumps(result, ensure_ascii=False, default=str)
 
@@ -784,6 +809,26 @@ async def _do_create_dependency(  # noqa: PLR0912
                 "reason": dedupe.get("reason", ""),
             }
 
+        from strix.report.verification import verify_finding
+
+        verification = await verify_finding(
+            {
+                **candidate,
+                "impact": impact,
+                "remediation_steps": remediation_steps,
+                "evidence": evidence,
+                "assumptions": assumptions,
+                "advisory_cvss": advisory_cvss,
+                "cwe": cwe,
+            }
+        )
+        if verification.get("status") not in {"not_requested", "confirmed"}:
+            return {
+                "success": False,
+                "error": "Dependency finding was not confirmed by the independent verifier",
+                "verification": verification,
+            }
+
         report_id = report_state.add_vulnerability_report(
             title=title,
             description=description,
@@ -800,6 +845,7 @@ async def _do_create_dependency(  # noqa: PLR0912
             cwe=cwe,
             finding_class="dependency_cve",
             dependency_metadata=dependency_metadata,
+            verification=verification,
             agent_id=agent_id if isinstance(agent_id, str) else None,
             agent_name=agent_name if isinstance(agent_name, str) else None,
         )

@@ -54,6 +54,7 @@ from strix.tools.todo.tools import (
     mark_todo_pending,
     update_todo,
 )
+from strix.tools.verification.tool import submit_verification_verdict
 from strix.tools.web_search.tool import web_search
 
 
@@ -283,6 +284,8 @@ def _lifecycle_tool_completed(tool_name: str, output: Any) -> bool:
         completion_key = "agent_completed"
     elif tool_name == "finish_scan":
         completion_key = "scan_completed"
+    elif tool_name == "submit_verification_verdict":
+        completion_key = "verification_completed"
     else:
         return False
 
@@ -464,6 +467,66 @@ def build_strix_agent(
         name=name,
         instructions=instructions,
         tools=tools,
+        tool_use_behavior=_finish_tool_use_behavior,
+        model=model,
+        model_settings=model_settings or ModelSettings(),
+        capabilities=[
+            Filesystem(
+                configure_tools=(
+                    _configure_chat_completions_filesystem_tools if chat_completions_tools else None
+                ),
+            ),
+            Shell(
+                configure_tools=_make_shell_configurator(
+                    chat_completions=chat_completions_tools,
+                ),
+            ),
+        ],
+    )
+
+
+# Tools a verifier must NOT have: it independently reproduces a finding, it does
+# not file reports, spawn agents, or participate in the agent graph.
+_VERIFIER_EXCLUDED_TOOLS = frozenset(
+    {
+        "create_vulnerability_report",
+        "create_dependency_report",
+        "create_agent",
+        "stop_agent",
+        "view_agent_graph",
+        "send_message_to_agent",
+        "wait_for_message",
+    }
+)
+
+
+def build_verifier_agent(
+    *,
+    instructions: str,
+    model: str | None = None,
+    model_settings: ModelSettings | None = None,
+    chat_completions_tools: bool = False,
+) -> SandboxAgent[Any]:
+    """Build a sandbox agent that independently reproduces a candidate finding.
+
+    The verifier gets the testing toolset (shell, HTTP proxy, browser, notes,
+    web search) plus ``submit_verification_verdict`` to end with a structured
+    verdict. It cannot file reports or spawn/steer other agents.
+    """
+    verifier_tools: list[Tool] = [
+        tool
+        for tool in (*_BASE_TOOLS, *_EXTRA_TOOLS)
+        if tool.name not in _VERIFIER_EXCLUDED_TOOLS
+    ]
+    verifier_tools.append(submit_verification_verdict)
+    _ensure_unique_tool_names(verifier_tools)
+
+    logger.info("Built verifier agent (tools=%d, model=%s)", len(verifier_tools), model or "-")
+
+    return SandboxAgent(
+        name="finding-verifier",
+        instructions=instructions,
+        tools=verifier_tools,
         tool_use_behavior=_finish_tool_use_behavior,
         model=model,
         model_settings=model_settings or ModelSettings(),

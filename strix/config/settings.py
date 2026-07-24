@@ -100,6 +100,27 @@ class LlmSettings(BaseSettings):
     timeout: int = Field(default=300, alias="LLM_TIMEOUT")
 
 
+class FindingVerificationSettings(BaseSettings):
+    model_config = _BASE_CONFIG
+
+    enabled: bool = Field(default=False, alias="STRIX_VERIFY_FINDINGS")
+    model: str | None = Field(default=None, alias="STRIX_VERIFICATION_MODEL")
+    reasoning_effort: ReasoningEffort | None = Field(
+        default="high",
+        alias="STRIX_VERIFICATION_REASONING_EFFORT",
+    )
+    api_key: str | None = Field(default=None, alias="VERIFICATION_LLM_API_KEY")
+    api_base: str | None = Field(default=None, alias="VERIFICATION_LLM_API_BASE")
+
+    @model_validator(mode="after")
+    def require_model_when_enabled(self) -> FindingVerificationSettings:
+        if self.enabled and not (self.model or "").strip():
+            raise ValueError(
+                "STRIX_VERIFICATION_MODEL must be set when STRIX_VERIFY_FINDINGS is enabled"
+            )
+        return self
+
+
 class RuntimeSettings(BaseSettings):
     model_config = _BASE_CONFIG
 
@@ -133,6 +154,7 @@ class Settings(BaseSettings):
     model_config = _BASE_CONFIG
 
     llm: LlmSettings = Field(default_factory=LlmSettings)
+    verification: FindingVerificationSettings = Field(default_factory=FindingVerificationSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     integrations: IntegrationSettings = Field(default_factory=IntegrationSettings)

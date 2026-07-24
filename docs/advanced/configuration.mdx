@@ -74,6 +74,39 @@ skill. An explicit model passed to `create_agent` takes precedence over routes.
 }
 ```
 
+### Independent finding verification
+
+<ParamField path="STRIX_VERIFY_FINDINGS" default="false" type="boolean">
+  Require an independent model to try to refute every candidate before it is
+  persisted. Off by default. Rejected findings and verifier errors fail closed.
+</ParamField>
+
+<ParamField path="STRIX_VERIFICATION_MODEL" type="string">
+  Model used by the independent verifier. Required when verification is enabled.
+</ParamField>
+
+<ParamField path="VERIFICATION_LLM_API_KEY" type="string">
+  Optional provider key for the verification model.
+</ParamField>
+
+<ParamField path="VERIFICATION_LLM_API_BASE" type="string">
+  Optional custom API base URL for the verification model. Use when the
+  verifier runs on a different endpoint than the main model.
+</ParamField>
+
+<ParamField path="STRIX_VERIFICATION_REASONING_EFFORT" default="high" type="string">
+  Reasoning effort for the verifier.
+</ParamField>
+
+When enabled, every candidate finding is handed to an independent verifier
+before it is persisted. Inside a scan sandbox, the verifier is a dedicated agent
+that **independently reproduces** the finding using the same testing tools
+(shell, HTTP proxy, browser) and rules based on evidence it gathers itself.
+Without a sandbox (e.g. library callers), it falls back to a single-shot
+adversarial refutation over the supplied evidence. Only confirmed findings are
+persisted; rejected findings and verifier errors fail closed. Verifier activity
+is recorded in the same `llm_usage` ledger and counts toward `--max-budget-usd`.
+
 ## Optional Features
 
 <ParamField path="PERPLEXITY_API_KEY" type="string">
