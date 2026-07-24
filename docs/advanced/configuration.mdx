@@ -98,10 +98,14 @@ skill. An explicit model passed to `create_agent` takes precedence over routes.
   Reasoning effort for the verifier.
 </ParamField>
 
-When enabled, every candidate finding is sent to an independent model that
-tries to refute it. Only confirmed findings are persisted; rejected findings
-and verifier errors fail closed. Verification calls are recorded in the same
-`llm_usage` ledger and count toward `--max-budget-usd`.
+When enabled, every candidate finding is handed to an independent verifier
+before it is persisted. Inside a scan sandbox, the verifier is a dedicated agent
+that **independently reproduces** the finding using the same testing tools
+(shell, HTTP proxy, browser) and rules based on evidence it gathers itself.
+Without a sandbox (e.g. library callers), it falls back to a single-shot
+adversarial refutation over the supplied evidence. Only confirmed findings are
+persisted; rejected findings and verifier errors fail closed. Verifier activity
+is recorded in the same `llm_usage` ledger and counts toward `--max-budget-usd`.
 
 ## Optional Features
 

@@ -288,6 +288,8 @@ async def run_strix_scan(
         context: dict[str, Any] = {
             "coordinator": coordinator,
             "sandbox_session": bundle["session"],
+            "sandbox_client": bundle["client"],
+            "run_config": run_config,
             "caido_client": bundle["caido_client"],
             "agent_id": root_id,
             "parent_id": None,

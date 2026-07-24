@@ -177,6 +177,7 @@ async def _do_create(  # noqa: PLR0912
     fix_pr_body: str | None = None,
     agent_id: str | None = None,
     agent_name: str | None = None,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     fields = {
@@ -286,7 +287,8 @@ async def _do_create(  # noqa: PLR0912
                 "cve": cve,
                 "cwe": cwe,
                 "code_locations": parsed_locations,
-            }
+            },
+            context,
         )
         if verification.get("status") not in {"not_requested", "confirmed"}:
             return {
@@ -634,6 +636,7 @@ async def create_vulnerability_report(
         fix_pr_body=fix_pr_body,
         agent_id=agent_id,
         agent_name=agent_name,
+        context=inner,
     )
     return json.dumps(result, ensure_ascii=False, default=str)
 
