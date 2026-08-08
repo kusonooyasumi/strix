@@ -127,6 +127,13 @@ class SafetySettings(BaseSettings):
         default="low",
         alias="STRIX_SAFETY_REASONING_EFFORT",
     )
+    api_key: str | None = Field(default=None, alias="SAFETY_LLM_API_KEY", repr=False)
+    api_base: str | None = Field(default=None, alias="SAFETY_LLM_API_BASE")
+    extra_headers: dict[str, str] | None = Field(
+        default=None,
+        alias="SAFETY_LLM_EXTRA_HEADERS",
+        repr=False,
+    )
     timeout: int = Field(default=60, gt=0, alias="STRIX_SAFETY_TIMEOUT")
     max_output_tokens: int = Field(
         default=8192,
