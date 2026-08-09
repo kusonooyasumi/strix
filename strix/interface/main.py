@@ -245,6 +245,43 @@ async def warm_up_llm(show_model_warning: bool = True) -> None:
             )
             logger.info("LLM warm-up succeeded for dedupe model %s", dedupe_model)
 
+        if settings.safety.mode != "off" and settings.safety.model:
+            from strix.safety.reviewer import _safety_extra_args
+
+            safety_model = settings.safety.model.strip()
+            raw_model = safety_model
+            reviewer = StrixProvider().get_model(safety_model)
+            safety_extra = _safety_extra_args(settings.safety)
+            # A dedicated safety model may route to another provider, which must
+            # never receive the main endpoint's headers; it has its own
+            # SAFETY_LLM_EXTRA_HEADERS.
+            reviewer_settings = make_model_settings(
+                None,
+                model_name=safety_model,
+                request_timeout=settings.safety.timeout,
+                prompt_cache=False,
+                extra_headers=settings.safety.extra_headers,
+            )
+            if safety_extra:
+                merged = {**(reviewer_settings.extra_args or {}), **safety_extra}
+                reviewer_settings = reviewer_settings.resolve(ModelSettings(extra_args=merged))
+            await asyncio.wait_for(
+                reviewer.get_response(
+                    system_instructions="You are a helpful assistant.",
+                    input="Reply with just 'OK'.",
+                    model_settings=reviewer_settings,
+                    tools=[],
+                    output_schema=None,
+                    handoffs=[],
+                    tracing=ModelTracing.DISABLED,
+                    previous_response_id=None,
+                    conversation_id=None,
+                    prompt=None,
+                ),
+                timeout=settings.safety.timeout,
+            )
+            logger.info("LLM warm-up succeeded for safety model %s", safety_model)
+
     except ModelConnectionError:
         logger.debug("Model route warm-up failed", exc_info=True)
         raise

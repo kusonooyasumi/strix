@@ -9,6 +9,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 from agents import Agent, RunContextWrapper, Runner, function_tool
+from agents.model_settings import ModelSettings
 from agents.retry import ModelRetrySettings
 
 from strix.config import load_settings
@@ -19,6 +20,7 @@ from strix.safety.types import InspectionContext, SafetyDecision, SafetyVerdict
 
 
 if TYPE_CHECKING:
+    from strix.config.settings import SafetySettings
     from strix.safety.evidence import EvidenceBundle
     from strix.safety.inspection import InspectionRunner
 
@@ -26,6 +28,45 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_REVIEW_TURNS = 2
+
+
+def _safety_extra_args(safety: SafetySettings) -> dict[str, str]:
+    """Per-call credential and endpoint for a dedicated safety model.
+
+    Provider env vars and the global base URL are process-wide, so a dedicated
+    safety key or endpoint can't be installed globally without clobbering (or
+    being clobbered by) the main model's config. Passing them per call keeps the
+    two apart. Only applies when a dedicated safety model is configured.
+    """
+    if not safety.model:
+        return {}
+    extra: dict[str, str] = {}
+    if safety.api_key and safety.api_key.strip():
+        extra["api_key"] = safety.api_key.strip()
+    if safety.api_base and safety.api_base.strip():
+        extra["api_base"] = safety.api_base.strip()
+    return extra
+
+
+def _safety_model_settings(
+    safety: SafetySettings, model_name: str, fallback_headers: dict[str, str] | None
+) -> ModelSettings:
+    settings = make_model_settings(
+        safety.reasoning_effort,
+        model_name=model_name,
+        request_timeout=safety.timeout,
+        prompt_cache=False,
+        # The main model's headers apply only when the reviewer falls back to the main
+        # model; a dedicated safety model may route to another provider, which must
+        # never receive the main endpoint's headers. It gets its own
+        # SAFETY_LLM_EXTRA_HEADERS instead.
+        extra_headers=safety.extra_headers if safety.model else fallback_headers,
+    )
+    extra = _safety_extra_args(safety)
+    if extra:
+        settings = settings.resolve(ModelSettings(extra_args=extra))
+    return settings
+
 
 _SAFETY_PROMPT = """You are the final pre-execution safety reviewer for one exact tool call.
 
@@ -124,13 +165,7 @@ class SafetyReviewer:
             )
 
         configure_sdk_model_defaults(settings)
-        base_settings = make_model_settings(
-            safety.reasoning_effort,
-            model_name=model_name,
-            request_timeout=safety.timeout,
-            prompt_cache=False,
-            extra_headers=settings.llm.extra_headers,
-        )
+        base_settings = _safety_model_settings(safety, model_name, settings.llm.extra_headers)
         # The cap covers reasoning tokens as well as the verdict, so a budget sized for
         # the verdict alone would truncate every review on a reasoning model and the
         # missing structured output would fail closed.
